@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { AppData, Section, WatchItem, Season, DashboardStats } from '@/types/watch';
 
-const STORAGE_KEY = 'watchtracker_data';
+const STORAGE_KEY = 'watchmovies_data';
 
 const defaultData: AppData = {
   sections: [

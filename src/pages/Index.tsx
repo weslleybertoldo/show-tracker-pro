@@ -71,7 +71,7 @@ export default function Index() {
       `}>
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-lg font-bold text-gradient cursor-pointer" onClick={goToDashboard}>
-            🎬 WatchTracker
+            🎬 Watch Movies
           </h1>
           <Button variant="ghost" size="icon" className="h-8 w-8 md:hidden" onClick={() => setSidebarOpen(false)}>
             <X className="w-4 h-4" />
