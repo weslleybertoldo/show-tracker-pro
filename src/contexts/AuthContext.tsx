@@ -28,11 +28,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (Capacitor.isNativePlatform()) {
       capListener = CapApp.addListener("appStateChange", async ({ isActive }) => {
         try {
-          if (isActive && !user) {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session?.user) {
-              setSession(session);
-              setUser(session.user);
+          if (isActive) {
+            // Fechar browser do OAuth ao voltar para o app
+            Browser.close().catch(() => {});
+            if (!user) {
+              const { data: { session } } = await supabase.auth.getSession();
+              if (session?.user) {
+                setSession(session);
+                setUser(session.user);
+              }
             }
           }
         } catch (e) {
