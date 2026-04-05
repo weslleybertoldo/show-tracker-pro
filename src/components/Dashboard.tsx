@@ -1,12 +1,12 @@
 import { formatTime } from '@/lib/formatters';
 import { DashboardStats } from '@/types/watch';
-import { Film, Tv, Clock, CheckCircle, Play, BarChart3, Timer } from 'lucide-react';
+import { Film, Tv, Clock, CheckCircle, Play, BarChart3, Timer, type LucideIcon } from 'lucide-react';
 
 interface DashboardProps {
   stats: DashboardStats;
 }
 
-const StatCard = ({ icon: Icon, label, value, sub }: { icon: any; label: string; value: string | number; sub?: string }) => (
+const StatCard = ({ icon: Icon, label, value, sub }: { icon: LucideIcon; label: string; value: string | number; sub?: string }) => (
   <div className="glass-card rounded-lg p-5 animate-slide-up">
     <div className="flex items-center gap-3 mb-2">
       <div className="p-2 rounded-md bg-primary/15">
@@ -26,20 +26,20 @@ export default function Dashboard({ stats }: DashboardProps) {
         <h1 className="text-3xl font-bold">
           <span className="text-gradient">Watch Movies</span>
         </h1>
-        <p className="text-muted-foreground mt-1">Seu painel de controle de filmes e séries</p>
+        <p className="text-muted-foreground mt-1">Seu painel de controle de filmes e series</p>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard icon={BarChart3} label="Total registrados" value={stats.totalItems} />
-        <StatCard icon={Tv} label="Séries" value={stats.totalSeries} />
+        <StatCard icon={Tv} label="Series" value={stats.totalSeries} />
         <StatCard icon={Film} label="Filmes" value={stats.totalMovies} />
-        <StatCard icon={CheckCircle} label="Concluídos" value={stats.completedItems} />
+        <StatCard icon={CheckCircle} label="Concluidos" value={stats.completedItems} />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <StatCard
           icon={Play}
-          label="Episódios assistidos"
+          label="Episodios assistidos"
           value={stats.totalEpisodesWatched}
         />
         <StatCard
@@ -51,8 +51,8 @@ export default function Dashboard({ stats }: DashboardProps) {
         <StatCard
           icon={Timer}
           label="Tempo restante"
-          value={formatTime(stats.totalTimeRemaining)}
-          sub={`${Math.round(stats.totalTimeRemaining / 60)} horas restantes`}
+          value={formatTime(Math.max(0, stats.totalTimeRemaining))}
+          sub={`${Math.round(Math.max(0, stats.totalTimeRemaining) / 60)} horas restantes`}
         />
       </div>
     </div>

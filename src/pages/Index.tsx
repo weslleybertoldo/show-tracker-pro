@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useWatchStore } from '@/store/useWatchStore';
 import { useAuth } from '@/contexts/AuthContext';
 import Dashboard from '@/components/Dashboard';
@@ -12,8 +12,8 @@ import { Input } from '@/components/ui/input';
 import { Plus, Search, LayoutDashboard, Menu, X, LogOut } from 'lucide-react';
 
 export default function Index() {
-  const store = useWatchStore();
   const { signOut, user } = useAuth();
+  const store = useWatchStore(user?.id);
   const [view, setView] = useState<'dashboard' | 'section'>('dashboard');
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
@@ -22,6 +22,14 @@ export default function Index() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const stats = store.getStats();
+
+  // Clear selectedItem if it no longer exists
+  const selectedItemData = selectedItem ? store.data.items.find(i => i.id === selectedItem) : null;
+  useEffect(() => {
+    if (selectedItem && !selectedItemData) {
+      setSelectedItem(null);
+    }
+  }, [selectedItem, selectedItemData]);
 
   const sectionItems = useMemo(() => {
     if (!activeSection) return [];
@@ -39,8 +47,16 @@ export default function Index() {
     return store.data.items.filter(i => i.title.toLowerCase().includes(q));
   }, [searchQuery, store.data.items, view]);
 
-  const selectedItemData = selectedItem ? store.data.items.find(i => i.id === selectedItem) : null;
   const activeSectionData = activeSection ? store.data.sections.find(s => s.id === activeSection) : null;
+
+  // Item counts per section
+  const itemCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    store.data.items.forEach(i => {
+      counts[i.sectionId] = (counts[i.sectionId] || 0) + 1;
+    });
+    return counts;
+  }, [store.data.items]);
 
   const handleSelectSection = (id: string) => {
     setActiveSection(id);
@@ -74,7 +90,7 @@ export default function Index() {
       `}>
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-lg font-bold text-gradient cursor-pointer" onClick={goToDashboard}>
-            🎬 Watch Movies
+            Watch Movies
           </h1>
           <Button variant="ghost" size="icon" className="h-8 w-8 md:hidden" onClick={() => setSidebarOpen(false)}>
             <X className="w-4 h-4" />
@@ -101,6 +117,7 @@ export default function Index() {
             onAdd={store.addSection}
             onUpdate={store.updateSection}
             onDelete={store.deleteSection}
+            itemCounts={itemCounts}
           />
         </div>
 
@@ -129,7 +146,7 @@ export default function Index() {
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
-                placeholder="Buscar filmes e séries..."
+                placeholder="Buscar filmes e series..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 className="pl-9 bg-muted/50 border-border h-9"
@@ -173,7 +190,7 @@ export default function Index() {
               {sectionItems.length === 0 ? (
                 <div className="text-center py-16 text-muted-foreground">
                   <p className="text-lg mb-2">Nenhum item registrado</p>
-                  <p className="text-sm">Clique em "Adicionar" para começar!</p>
+                  <p className="text-sm">Clique em "Adicionar" para comecar!</p>
                 </div>
               ) : (
                 <div className="grid gap-3">

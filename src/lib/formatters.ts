@@ -1,4 +1,5 @@
 export function formatTime(minutes: number): string {
+  if (minutes <= 0) return '0min';
   if (minutes < 60) return `${Math.round(minutes)}min`;
   const h = Math.floor(minutes / 60);
   const m = Math.round(minutes % 60);
@@ -8,6 +9,7 @@ export function formatTime(minutes: number): string {
 
 export function formatDate(iso: string): string {
   const d = new Date(iso);
+  if (isNaN(d.getTime())) return 'Data invalida';
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 

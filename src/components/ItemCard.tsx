@@ -1,6 +1,6 @@
 import { WatchItem } from '@/types/watch';
 import { formatTime, formatDate, getSeriesProgress } from '@/lib/formatters';
-import { Clock, Calendar, MessageSquare } from 'lucide-react';
+import { Calendar, MessageSquare } from 'lucide-react';
 
 interface ItemCardProps {
   item: WatchItem;

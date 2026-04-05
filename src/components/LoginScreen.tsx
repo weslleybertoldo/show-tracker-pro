@@ -56,7 +56,7 @@ export function LoginScreen() {
         </div>
 
         <p className="text-xs text-muted-foreground">
-          Seus dados ficam salvos na sua conta Google
+          Cada conta Google tem seus dados separados
         </p>
       </div>
     </div>

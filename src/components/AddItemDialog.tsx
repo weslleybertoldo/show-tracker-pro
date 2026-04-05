@@ -72,6 +72,7 @@ export default function AddItemDialog({ open, onOpenChange, sectionId, onAdd }: 
     }
 
     // Reset
+    setType('series');
     setTitle('');
     setMovieDuration('');
     setSeasonCount(1);

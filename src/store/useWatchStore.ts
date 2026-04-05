@@ -3,43 +3,50 @@ import { AppData, Section, WatchItem, Season, DashboardStats } from '@/types/wat
 
 const STORAGE_KEY = 'watchmovies_data';
 
-const defaultData: AppData = {
-  sections: [
-    { id: 'sec-1', name: 'Filmes', icon: '🎬', createdAt: new Date().toISOString() },
-    { id: 'sec-2', name: 'Séries', icon: '📺', createdAt: new Date().toISOString() },
-    { id: 'sec-3', name: 'Animes', icon: '⛩️', createdAt: new Date().toISOString() },
-  ],
-  items: [],
-};
+function getDefaultData(): AppData {
+  return {
+    sections: [
+      { id: crypto.randomUUID(), name: 'Filmes', icon: '🎬', createdAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), name: 'Séries', icon: '📺', createdAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), name: 'Animes', icon: '⛩️', createdAt: new Date().toISOString() },
+    ],
+    items: [],
+  };
+}
 
-function loadData(): AppData {
+function getStorageKey(userId?: string): string {
+  return userId ? `${STORAGE_KEY}_${userId}` : STORAGE_KEY;
+}
+
+function loadData(userId?: string): AppData {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(getStorageKey(userId));
     if (raw) return JSON.parse(raw);
   } catch {}
-  return defaultData;
+  return getDefaultData();
 }
 
-function saveData(data: AppData) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+function saveData(data: AppData, userId?: string) {
+  localStorage.setItem(getStorageKey(userId), JSON.stringify(data));
 }
 
-export function generateId() {
-  return Math.random().toString(36).substring(2, 12);
+export function generateId(): string {
+  return crypto.randomUUID();
 }
 
-export function useWatchStore() {
-  const [data, setData] = useState<AppData>(loadData);
+export function useWatchStore(userId?: string) {
+  const [data, setData] = useState<AppData>(() => loadData(userId));
 
   useEffect(() => {
-    saveData(data);
-  }, [data]);
+    setData(loadData(userId));
+  }, [userId]);
+
+  useEffect(() => {
+    saveData(data, userId);
+  }, [data, userId]);
 
   const updateData = useCallback((updater: (prev: AppData) => AppData) => {
-    setData(prev => {
-      const next = updater(prev);
-      return next;
-    });
+    setData(prev => updater(prev));
   }, []);
 
   // Sections
@@ -94,8 +101,7 @@ export function useWatchStore() {
       items: d.items.map(item => {
         if (item.id !== itemId || !item.seasons) return item;
         const seasons = item.seasons.map(s => {
-          if (s.id !== seasonId) return s;
-          if (s.watchedEpisodes >= s.totalEpisodes) return s;
+          if (s.id !== seasonId || s.watchedEpisodes >= s.totalEpisodes) return s;
           return { ...s, watchedEpisodes: s.watchedEpisodes + 1 };
         });
         return { ...item, seasons, lastWatchedAt: new Date().toISOString() };
@@ -159,10 +165,12 @@ export function useWatchStore() {
       s.seasons?.forEach(season => {
         totalEpisodesWatched += season.watchedEpisodes;
         totalTimeWatched += season.watchedEpisodes * season.episodeDuration;
-        totalTimeRemaining += (season.totalEpisodes - season.watchedEpisodes) * season.episodeDuration;
+        const remaining = (season.totalEpisodes - season.watchedEpisodes) * season.episodeDuration;
         if (season.partialEpisodeTime) {
           totalTimeWatched += season.partialEpisodeTime;
-          totalTimeRemaining -= season.partialEpisodeTime;
+          totalTimeRemaining += Math.max(0, remaining - season.partialEpisodeTime);
+        } else {
+          totalTimeRemaining += remaining;
         }
       });
       const allDone = s.seasons?.every(se => se.watchedEpisodes >= se.totalEpisodes);
@@ -173,7 +181,7 @@ export function useWatchStore() {
       const watched = m.watchedDuration || 0;
       const total = m.totalDuration || 0;
       totalTimeWatched += watched;
-      totalTimeRemaining += total - watched;
+      totalTimeRemaining += Math.max(0, total - watched);
       if (m.completed || watched >= total) completedItems++;
     });
 
@@ -183,7 +191,7 @@ export function useWatchStore() {
       totalMovies: movies.length,
       totalEpisodesWatched,
       totalTimeWatched,
-      totalTimeRemaining,
+      totalTimeRemaining: Math.max(0, totalTimeRemaining),
       completedItems,
     };
   }, [data.items]);

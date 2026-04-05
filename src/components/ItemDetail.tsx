@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { WatchItem, Season } from '@/types/watch';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +11,10 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle
 } from '@/components/ui/dialog';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger
+} from '@/components/ui/alert-dialog';
 import { generateId } from '@/store/useWatchStore';
 
 interface ItemDetailProps {
@@ -34,32 +38,41 @@ export default function ItemDetail({
   const [commentOpen, setCommentOpen] = useState(false);
   const [comment, setComment] = useState(item.comment || '');
 
-  // Edit state
+  // Edit state - reinitialize when item changes or dialog opens
   const [editTitle, setEditTitle] = useState(item.title);
   const [editDuration, setEditDuration] = useState(String(item.totalDuration || ''));
   const [editSeasons, setEditSeasons] = useState<{ episodes: string; duration: string }[]>(
     item.seasons?.map(s => ({ episodes: String(s.totalEpisodes), duration: String(s.episodeDuration) })) || []
   );
 
+  useEffect(() => {
+    setEditTitle(item.title);
+    setEditDuration(String(item.totalDuration || ''));
+    setEditSeasons(
+      item.seasons?.map(s => ({ episodes: String(s.totalEpisodes), duration: String(s.episodeDuration) })) || []
+    );
+    setComment(item.comment || '');
+  }, [item.id]);
+
   const isSeries = item.type === 'series';
 
   const saveEdit = () => {
-    const updates: Partial<WatchItem> = { title: editTitle.trim() };
+    const updates: Partial<WatchItem> = { title: editTitle.trim() || item.title };
     if (isSeries) {
       const newSeasons: Season[] = editSeasons.map((se, i) => {
         const existing = item.seasons?.[i];
         return {
           id: existing?.id || generateId(),
           number: i + 1,
-          totalEpisodes: parseInt(se.episodes) || 12,
+          totalEpisodes: Math.max(1, parseInt(se.episodes) || 12),
           watchedEpisodes: existing?.watchedEpisodes || 0,
-          episodeDuration: parseInt(se.duration) || 24,
+          episodeDuration: Math.max(1, parseInt(se.duration) || 24),
           partialEpisodeTime: existing?.partialEpisodeTime,
         };
       });
       updates.seasons = newSeasons;
     } else {
-      updates.totalDuration = parseInt(editDuration) || 120;
+      updates.totalDuration = Math.max(1, parseInt(editDuration) || 120);
     }
     onUpdate(item.id, updates);
     setEditOpen(false);
@@ -74,13 +87,18 @@ export default function ItemDetail({
     setEditSeasons(prev => [...prev, { episodes: '12', duration: '24' }]);
   };
 
+  const removeSeasonFromEdit = (index: number) => {
+    if (editSeasons.length <= 1) return;
+    setEditSeasons(prev => prev.filter((_, i) => i !== index));
+  };
+
   // Stats
   const totalEps = item.seasons?.reduce((a, s) => a + s.totalEpisodes, 0) || 0;
   const watchedEps = item.seasons?.reduce((a, s) => a + s.watchedEpisodes, 0) || 0;
   const remainingEps = totalEps - watchedEps;
   const totalTime = item.seasons?.reduce((a, s) => a + s.totalEpisodes * s.episodeDuration, 0) || 0;
   const watchedTime = item.seasons?.reduce((a, s) => a + s.watchedEpisodes * s.episodeDuration + (s.partialEpisodeTime || 0), 0) || 0;
-  const remainingTime = totalTime - watchedTime;
+  const remainingTime = Math.max(0, totalTime - watchedTime);
   const progress = isSeries ? getSeriesProgress(item.seasons || []) :
     (item.completed ? 100 : ((item.watchedDuration || 0) / (item.totalDuration || 1)) * 100);
 
@@ -95,7 +113,7 @@ export default function ItemDetail({
           <h2 className="text-xl font-bold text-foreground truncate">{item.title}</h2>
           {item.lastWatchedAt && (
             <p className="text-xs text-muted-foreground">
-              Assistido pela última vez em {formatDate(item.lastWatchedAt)}
+              Assistido pela ultima vez em {formatDate(item.lastWatchedAt)}
             </p>
           )}
         </div>
@@ -106,19 +124,59 @@ export default function ItemDetail({
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditOpen(true)}>
             <Settings className="w-4 h-4" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onResetItem(item.id)}>
-            <RotateCcw className="w-4 h-4" />
-          </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => { onDelete(item.id); onBack(); }}>
-            <Trash2 className="w-4 h-4" />
-          </Button>
+
+          {/* Reset com confirmacao */}
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8">
+                <RotateCcw className="w-4 h-4" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent className="bg-card border-border">
+              <AlertDialogHeader>
+                <AlertDialogTitle>Resetar progresso?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Todo o progresso de "{item.title}" sera zerado. Esta acao nao pode ser desfeita.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction onClick={() => onResetItem(item.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                  Resetar
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          {/* Delete com confirmacao */}
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive">
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent className="bg-card border-border">
+              <AlertDialogHeader>
+                <AlertDialogTitle>Excluir "{item.title}"?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Este item sera removido permanentemente. Esta acao nao pode ser desfeita.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction onClick={() => { onDelete(item.id); onBack(); }} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                  Excluir
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </div>
 
       {/* Comment */}
       {item.comment && (
         <div className="glass-card rounded-lg p-3 text-sm text-muted-foreground italic">
-          💬 {item.comment}
+          {item.comment}
         </div>
       )}
 
@@ -153,7 +211,7 @@ export default function ItemDetail({
       {!isSeries && (
         <div className="glass-card rounded-lg p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Duração: {formatTime(item.totalDuration || 0)}</span>
+            <span className="text-sm text-muted-foreground">Duracao: {formatTime(item.totalDuration || 0)}</span>
             <Button
               size="sm"
               variant={item.completed ? 'default' : 'outline'}
@@ -163,7 +221,7 @@ export default function ItemDetail({
                 lastWatchedAt: new Date().toISOString()
               })}
             >
-              {item.completed ? '✓ Completo' : 'Marcar completo'}
+              {item.completed ? '\u2713 Completo' : 'Marcar completo'}
             </Button>
           </div>
           {!item.completed && (
@@ -171,11 +229,16 @@ export default function ItemDetail({
               <label className="text-xs text-muted-foreground">Tempo assistido (minutos)</label>
               <Input
                 type="number"
+                min={0}
+                max={item.totalDuration || undefined}
                 value={item.watchedDuration || 0}
-                onChange={e => onUpdate(item.id, {
-                  watchedDuration: parseInt(e.target.value) || 0,
-                  lastWatchedAt: new Date().toISOString()
-                })}
+                onChange={e => {
+                  const val = Math.max(0, Math.min(parseInt(e.target.value) || 0, item.totalDuration || Infinity));
+                  onUpdate(item.id, {
+                    watchedDuration: val,
+                    lastWatchedAt: new Date().toISOString()
+                  });
+                }}
                 className="mt-1 bg-muted border-border"
               />
             </div>
@@ -188,7 +251,7 @@ export default function ItemDetail({
         const sp = getSeasonProgress(season);
         const isExpanded = expandedSeason === season.id;
         const seasonDone = season.watchedEpisodes >= season.totalEpisodes;
-        const seasonRemaining = (season.totalEpisodes - season.watchedEpisodes) * season.episodeDuration;
+        const seasonRemaining = Math.max(0, (season.totalEpisodes - season.watchedEpisodes) * season.episodeDuration);
 
         return (
           <div key={season.id} className="glass-card rounded-lg overflow-hidden">
@@ -200,7 +263,7 @@ export default function ItemDetail({
               <div className="flex-1 text-left">
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-sm">Temporada {season.number}</span>
-                  {seasonDone && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-success/15 text-success">✓</span>}
+                  {seasonDone && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-success/15 text-success">{'\u2713'}</span>}
                 </div>
                 <span className="text-xs text-muted-foreground">
                   {season.watchedEpisodes}/{season.totalEpisodes} eps · {formatTime(season.episodeDuration)}/ep · Faltam {formatTime(seasonRemaining)}
@@ -209,7 +272,6 @@ export default function ItemDetail({
               <span className="text-xs font-medium text-muted-foreground">{Math.round(sp)}%</span>
             </button>
 
-            {/* Mini progress */}
             <div className="px-4 pb-1">
               <div className="progress-bar h-1">
                 <div className="progress-fill" style={{ width: `${Math.min(sp, 100)}%` }} />
@@ -230,7 +292,7 @@ export default function ItemDetail({
                   </Button>
                   <div className="text-center">
                     <p className="text-3xl font-bold text-foreground">{season.watchedEpisodes}</p>
-                    <p className="text-xs text-muted-foreground">de {season.totalEpisodes} episódios</p>
+                    <p className="text-xs text-muted-foreground">de {season.totalEpisodes} episodios</p>
                   </div>
                   <Button
                     size="icon"
@@ -243,17 +305,31 @@ export default function ItemDetail({
                   </Button>
                 </div>
                 <div className="flex justify-between mt-3 text-xs text-muted-foreground">
-                  <span>Faltam {season.totalEpisodes - season.watchedEpisodes} episódios</span>
+                  <span>Faltam {season.totalEpisodes - season.watchedEpisodes} episodios</span>
                   <span>{formatTime(seasonRemaining)} restantes</span>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full mt-2 text-xs text-muted-foreground"
-                  onClick={() => onResetSeason(item.id, season.id)}
-                >
-                  <RotateCcw className="w-3 h-3 mr-1" /> Zerar temporada
-                </Button>
+
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="ghost" size="sm" className="w-full mt-2 text-xs text-muted-foreground">
+                      <RotateCcw className="w-3 h-3 mr-1" /> Zerar temporada
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent className="bg-card border-border">
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Zerar Temporada {season.number}?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        O progresso desta temporada sera zerado.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => onResetSeason(item.id, season.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                        Zerar
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </div>
             )}
           </div>
@@ -264,11 +340,11 @@ export default function ItemDetail({
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="bg-card border-border max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Editar {isSeries ? 'Série' : 'Filme'}</DialogTitle>
+            <DialogTitle>Editar {isSeries ? 'Serie' : 'Filme'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <label className="text-sm text-muted-foreground">Título</label>
+              <label className="text-sm text-muted-foreground">Titulo</label>
               <Input value={editTitle} onChange={e => setEditTitle(e.target.value)} className="mt-1 bg-muted border-border" />
             </div>
             {isSeries ? (
@@ -279,7 +355,7 @@ export default function ItemDetail({
                       <span className="text-xs text-muted-foreground font-medium w-8">T{i + 1}</span>
                       <div className="flex-1">
                         <Input
-                          type="number" value={se.episodes}
+                          type="number" min={1} value={se.episodes}
                           onChange={e => {
                             const arr = [...editSeasons];
                             arr[i] = { ...arr[i], episodes: e.target.value };
@@ -287,11 +363,11 @@ export default function ItemDetail({
                           }}
                           className="h-8 text-sm bg-muted border-border"
                         />
-                        <span className="text-[10px] text-muted-foreground">episódios</span>
+                        <span className="text-[10px] text-muted-foreground">episodios</span>
                       </div>
                       <div className="flex-1">
                         <Input
-                          type="number" value={se.duration}
+                          type="number" min={1} value={se.duration}
                           onChange={e => {
                             const arr = [...editSeasons];
                             arr[i] = { ...arr[i], duration: e.target.value };
@@ -301,6 +377,11 @@ export default function ItemDetail({
                         />
                         <span className="text-[10px] text-muted-foreground">min/ep</span>
                       </div>
+                      {editSeasons.length > 1 && (
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeSeasonFromEdit(i)}>
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -310,8 +391,8 @@ export default function ItemDetail({
               </>
             ) : (
               <div>
-                <label className="text-sm text-muted-foreground">Duração (minutos)</label>
-                <Input type="number" value={editDuration} onChange={e => setEditDuration(e.target.value)} className="mt-1 bg-muted border-border" />
+                <label className="text-sm text-muted-foreground">Duracao (minutos)</label>
+                <Input type="number" min={1} value={editDuration} onChange={e => setEditDuration(e.target.value)} className="mt-1 bg-muted border-border" />
               </div>
             )}
             <Button onClick={saveEdit} className="w-full">
@@ -325,16 +406,16 @@ export default function ItemDetail({
       <Dialog open={commentOpen} onOpenChange={setCommentOpen}>
         <DialogContent className="bg-card border-border">
           <DialogHeader>
-            <DialogTitle>Comentário</DialogTitle>
+            <DialogTitle>Comentario</DialogTitle>
           </DialogHeader>
           <Textarea
             value={comment}
             onChange={e => setComment(e.target.value)}
-            placeholder="Adicione um comentário..."
+            placeholder="Adicione um comentario..."
             className="bg-muted border-border min-h-[100px]"
           />
           <Button onClick={saveComment} className="w-full">
-            <Save className="w-4 h-4 mr-1" /> Salvar comentário
+            <Save className="w-4 h-4 mr-1" /> Salvar comentario
           </Button>
         </DialogContent>
       </Dialog>
