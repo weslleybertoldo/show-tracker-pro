@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">WatchMov</string>
+    <string name="title_activity_main">WatchMov</string>
+    <string name="package_name">com.weslley.watchmov</string>
+    <string name="custom_url_scheme">com.weslley.watchmov</string>
+</resources>
