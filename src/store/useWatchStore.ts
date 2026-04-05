@@ -1,156 +1,237 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { AppData, Section, WatchItem, Season, DashboardStats } from '@/types/watch';
+import { supabase } from '@/lib/supabase';
 
-const STORAGE_KEY = 'watchmovies_data';
-
-function getDefaultData(): AppData {
-  return {
-    sections: [
-      { id: crypto.randomUUID(), name: 'Filmes', icon: '🎬', createdAt: new Date().toISOString() },
-      { id: crypto.randomUUID(), name: 'Séries', icon: '📺', createdAt: new Date().toISOString() },
-      { id: crypto.randomUUID(), name: 'Animes', icon: '⛩️', createdAt: new Date().toISOString() },
-    ],
-    items: [],
-  };
-}
-
-function getStorageKey(userId?: string): string {
-  return userId ? `${STORAGE_KEY}_${userId}` : STORAGE_KEY;
-}
-
-function loadData(userId?: string): AppData {
-  try {
-    const raw = localStorage.getItem(getStorageKey(userId));
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return getDefaultData();
-}
-
-function saveData(data: AppData, userId?: string) {
-  localStorage.setItem(getStorageKey(userId), JSON.stringify(data));
-}
+// ── Helpers ──
 
 export function generateId(): string {
   return crypto.randomUUID();
 }
 
-export function useWatchStore(userId?: string) {
-  const [data, setData] = useState<AppData>(() => loadData(userId));
+function dbSectionToLocal(row: any): Section {
+  return {
+    id: row.id,
+    name: row.name,
+    icon: row.icon || '\uD83D\uDCC1',
+    createdAt: row.created_at,
+  };
+}
 
-  useEffect(() => {
-    setData(loadData(userId));
+function dbItemToLocal(row: any): WatchItem {
+  return {
+    id: row.id,
+    sectionId: row.section_id,
+    title: row.title,
+    type: row.type,
+    totalDuration: row.total_duration,
+    watchedDuration: row.watched_duration || 0,
+    completed: row.completed || false,
+    seasons: row.seasons || undefined,
+    comment: row.comment || undefined,
+    lastWatchedAt: row.last_watched_at || undefined,
+    createdAt: row.created_at,
+  };
+}
+
+const DEFAULT_SECTIONS = [
+  { name: 'Filmes', icon: '\uD83C\uDFAC' },
+  { name: 'Series', icon: '\uD83D\uDCFA' },
+  { name: 'Animes', icon: '\u26E9\uFE0F' },
+];
+
+// ── Store Hook ──
+
+export function useWatchStore(userId?: string) {
+  const [data, setData] = useState<AppData>({ sections: [], items: [] });
+  const [loading, setLoading] = useState(true);
+  const loadedRef = useRef(false);
+
+  // ── Load from Supabase ──
+  const loadFromDB = useCallback(async () => {
+    if (!userId) return;
+
+    const [secRes, itemRes] = await Promise.all([
+      supabase.from('wm_sections').select('*').eq('user_id', userId).order('created_at'),
+      supabase.from('wm_items').select('*').eq('user_id', userId).order('created_at'),
+    ]);
+
+    let sections = (secRes.data || []).map(dbSectionToLocal);
+    const items = (itemRes.data || []).map(dbItemToLocal);
+
+    // Seed default sections for new users
+    if (sections.length === 0 && !loadedRef.current) {
+      const inserts = DEFAULT_SECTIONS.map(s => ({
+        user_id: userId,
+        name: s.name,
+        icon: s.icon,
+      }));
+      const { data: inserted } = await supabase.from('wm_sections').insert(inserts).select();
+      if (inserted) sections = inserted.map(dbSectionToLocal);
+    }
+
+    loadedRef.current = true;
+    setData({ sections, items });
+    setLoading(false);
   }, [userId]);
 
   useEffect(() => {
-    saveData(data, userId);
-  }, [data, userId]);
+    loadedRef.current = false;
+    setLoading(true);
+    loadFromDB();
+  }, [loadFromDB]);
 
-  const updateData = useCallback((updater: (prev: AppData) => AppData) => {
-    setData(prev => updater(prev));
+  // ── Section CRUD ──
+
+  const addSection = useCallback(async (name: string, icon?: string) => {
+    if (!userId) return;
+    const { data: inserted, error } = await supabase
+      .from('wm_sections')
+      .insert({ user_id: userId, name, icon: icon || '\uD83D\uDCC1' })
+      .select()
+      .single();
+    if (error || !inserted) return;
+    setData(prev => ({
+      ...prev,
+      sections: [...prev.sections, dbSectionToLocal(inserted)],
+    }));
+  }, [userId]);
+
+  const updateSection = useCallback(async (id: string, updates: Partial<Section>) => {
+    const dbUpdates: any = {};
+    if (updates.name !== undefined) dbUpdates.name = updates.name;
+    if (updates.icon !== undefined) dbUpdates.icon = updates.icon;
+    await supabase.from('wm_sections').update(dbUpdates).eq('id', id);
+    setData(prev => ({
+      ...prev,
+      sections: prev.sections.map(s => s.id === id ? { ...s, ...updates } : s),
+    }));
   }, []);
 
-  // Sections
-  const addSection = useCallback((name: string, icon?: string) => {
-    updateData(d => ({
-      ...d,
-      sections: [...d.sections, { id: generateId(), name, icon: icon || '📁', createdAt: new Date().toISOString() }],
+  const deleteSection = useCallback(async (id: string) => {
+    await supabase.from('wm_items').delete().eq('section_id', id);
+    await supabase.from('wm_sections').delete().eq('id', id);
+    setData(prev => ({
+      ...prev,
+      sections: prev.sections.filter(s => s.id !== id),
+      items: prev.items.filter(i => i.sectionId !== id),
     }));
-  }, [updateData]);
+  }, []);
 
-  const updateSection = useCallback((id: string, updates: Partial<Section>) => {
-    updateData(d => ({
-      ...d,
-      sections: d.sections.map(s => s.id === id ? { ...s, ...updates } : s),
+  // ── Item CRUD ──
+
+  const addItem = useCallback(async (item: Omit<WatchItem, 'id' | 'createdAt'>) => {
+    if (!userId) return;
+    const row: any = {
+      user_id: userId,
+      section_id: item.sectionId,
+      title: item.title,
+      type: item.type,
+      total_duration: item.totalDuration || null,
+      watched_duration: item.watchedDuration || 0,
+      completed: item.completed || false,
+      seasons: item.seasons || null,
+      comment: item.comment || null,
+    };
+    const { data: inserted, error } = await supabase.from('wm_items').insert(row).select().single();
+    if (error || !inserted) return;
+    setData(prev => ({
+      ...prev,
+      items: [...prev.items, dbItemToLocal(inserted)],
     }));
-  }, [updateData]);
+  }, [userId]);
 
-  const deleteSection = useCallback((id: string) => {
-    updateData(d => ({
-      ...d,
-      sections: d.sections.filter(s => s.id !== id),
-      items: d.items.filter(i => i.sectionId !== id),
+  const updateItem = useCallback(async (id: string, updates: Partial<WatchItem>) => {
+    const dbUpdates: any = {};
+    if (updates.title !== undefined) dbUpdates.title = updates.title;
+    if (updates.totalDuration !== undefined) dbUpdates.total_duration = updates.totalDuration;
+    if (updates.watchedDuration !== undefined) dbUpdates.watched_duration = updates.watchedDuration;
+    if (updates.completed !== undefined) dbUpdates.completed = updates.completed;
+    if (updates.seasons !== undefined) dbUpdates.seasons = updates.seasons;
+    if (updates.comment !== undefined) dbUpdates.comment = updates.comment;
+    if (updates.lastWatchedAt !== undefined) dbUpdates.last_watched_at = updates.lastWatchedAt;
+
+    await supabase.from('wm_items').update(dbUpdates).eq('id', id);
+    setData(prev => ({
+      ...prev,
+      items: prev.items.map(i => i.id === id ? { ...i, ...updates } : i),
     }));
-  }, [updateData]);
+  }, []);
 
-  // Items
-  const addItem = useCallback((item: Omit<WatchItem, 'id' | 'createdAt'>) => {
-    updateData(d => ({
-      ...d,
-      items: [...d.items, { ...item, id: generateId(), createdAt: new Date().toISOString() }],
+  const deleteItem = useCallback(async (id: string) => {
+    await supabase.from('wm_items').delete().eq('id', id);
+    setData(prev => ({
+      ...prev,
+      items: prev.items.filter(i => i.id !== id),
     }));
-  }, [updateData]);
+  }, []);
 
-  const updateItem = useCallback((id: string, updates: Partial<WatchItem>) => {
-    updateData(d => ({
-      ...d,
-      items: d.items.map(i => i.id === id ? { ...i, ...updates } : i),
-    }));
-  }, [updateData]);
+  // ── Episode tracking ──
 
-  const deleteItem = useCallback((id: string) => {
-    updateData(d => ({
-      ...d,
-      items: d.items.filter(i => i.id !== id),
-    }));
-  }, [updateData]);
-
-  // Episode tracking
-  const incrementEpisode = useCallback((itemId: string, seasonId: string) => {
-    updateData(d => ({
-      ...d,
-      items: d.items.map(item => {
+  const incrementEpisode = useCallback(async (itemId: string, seasonId: string) => {
+    setData(prev => {
+      const items = prev.items.map(item => {
         if (item.id !== itemId || !item.seasons) return item;
         const seasons = item.seasons.map(s => {
           if (s.id !== seasonId || s.watchedEpisodes >= s.totalEpisodes) return s;
           return { ...s, watchedEpisodes: s.watchedEpisodes + 1 };
         });
-        return { ...item, seasons, lastWatchedAt: new Date().toISOString() };
-      }),
-    }));
-  }, [updateData]);
+        const updated = { ...item, seasons, lastWatchedAt: new Date().toISOString() };
+        supabase.from('wm_items').update({ seasons: updated.seasons, last_watched_at: updated.lastWatchedAt }).eq('id', itemId);
+        return updated;
+      });
+      return { ...prev, items };
+    });
+  }, []);
 
-  const decrementEpisode = useCallback((itemId: string, seasonId: string) => {
-    updateData(d => ({
-      ...d,
-      items: d.items.map(item => {
+  const decrementEpisode = useCallback(async (itemId: string, seasonId: string) => {
+    setData(prev => {
+      const items = prev.items.map(item => {
         if (item.id !== itemId || !item.seasons) return item;
         const seasons = item.seasons.map(s => {
           if (s.id !== seasonId || s.watchedEpisodes <= 0) return s;
           return { ...s, watchedEpisodes: s.watchedEpisodes - 1 };
         });
-        return { ...item, seasons, lastWatchedAt: new Date().toISOString() };
-      }),
-    }));
-  }, [updateData]);
+        const updated = { ...item, seasons, lastWatchedAt: new Date().toISOString() };
+        supabase.from('wm_items').update({ seasons: updated.seasons, last_watched_at: updated.lastWatchedAt }).eq('id', itemId);
+        return updated;
+      });
+      return { ...prev, items };
+    });
+  }, []);
 
-  const resetSeason = useCallback((itemId: string, seasonId: string) => {
-    updateData(d => ({
-      ...d,
-      items: d.items.map(item => {
+  const resetSeason = useCallback(async (itemId: string, seasonId: string) => {
+    setData(prev => {
+      const items = prev.items.map(item => {
         if (item.id !== itemId || !item.seasons) return item;
         const seasons = item.seasons.map(s =>
           s.id === seasonId ? { ...s, watchedEpisodes: 0, partialEpisodeTime: undefined } : s
         );
-        return { ...item, seasons };
-      }),
-    }));
-  }, [updateData]);
+        const updated = { ...item, seasons };
+        supabase.from('wm_items').update({ seasons: updated.seasons }).eq('id', itemId);
+        return updated;
+      });
+      return { ...prev, items };
+    });
+  }, []);
 
-  const resetItem = useCallback((itemId: string) => {
-    updateData(d => ({
-      ...d,
-      items: d.items.map(item => {
+  const resetItem = useCallback(async (itemId: string) => {
+    setData(prev => {
+      const items = prev.items.map(item => {
         if (item.id !== itemId) return item;
         if (item.type === 'movie') {
+          supabase.from('wm_items').update({ watched_duration: 0, completed: false }).eq('id', itemId);
           return { ...item, watchedDuration: 0, completed: false };
         }
         const seasons = item.seasons?.map(s => ({ ...s, watchedEpisodes: 0, partialEpisodeTime: undefined }));
+        supabase.from('wm_items').update({ seasons }).eq('id', itemId);
         return { ...item, seasons };
-      }),
-    }));
-  }, [updateData]);
+      });
+      return { ...prev, items };
+    });
+  }, []);
 
-  // Stats
+  // ── Stats ──
+
   const getStats = useCallback((): DashboardStats => {
     const items = data.items;
     const series = items.filter(i => i.type === 'series');
@@ -198,6 +279,7 @@ export function useWatchStore(userId?: string) {
 
   return {
     data,
+    loading,
     addSection, updateSection, deleteSection,
     addItem, updateItem, deleteItem,
     incrementEpisode, decrementEpisode,

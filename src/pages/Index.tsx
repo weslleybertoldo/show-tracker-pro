@@ -9,7 +9,7 @@ import AddItemDialog from '@/components/AddItemDialog';
 import UpdateChecker from '@/components/UpdateChecker';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Plus, Search, LayoutDashboard, Menu, X, LogOut } from 'lucide-react';
+import { Plus, Search, LayoutDashboard, Menu, X, LogOut, Loader2 } from 'lucide-react';
 
 export default function Index() {
   const { signOut, user } = useAuth();
@@ -73,6 +73,14 @@ export default function Index() {
     setSearchQuery('');
     setSidebarOpen(false);
   };
+
+  if (store.loading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
